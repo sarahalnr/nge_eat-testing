@@ -7,13 +7,11 @@ tests = [
     "test_export-laporan.py"
 ]
 
-# Tentuin folder test yang bener
-test_folder = "tests/selenium-test"
+test_folder = "."
 
 for test in tests:
     print(f"\n=== Running {test} ===")
     try:
-        # Build path lengkap ke file test
         test_path = os.path.join(test_folder, test)
         subprocess.run(["python", test_path], check=True)
         print(f"{test} selesai dengan sukses!\n")
