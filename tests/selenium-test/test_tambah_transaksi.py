@@ -4,6 +4,12 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
+import os
+
+# Matikan log yang tidak perlu
+options = webdriver.ChromeOptions()
+options.add_argument("--log-level=3")
+options.add_experimental_option("excludeSwitches", ["enable-logging"])
 
 # === KONFIGURASI ===
 BASE_URL = "http://localhost:8000"
@@ -11,79 +17,76 @@ LOGIN_URL = f"{BASE_URL}/login"
 GOFOOD_URL = f"{BASE_URL}/gofood"
 EMAIL = "admin@gmail.com"
 PASSWORD = "admin123"
+SCREENSHOT_PATH = "tests/selenium-test/screenshots/tambah_transaksi_gagal.png"
+os.makedirs(os.path.dirname(SCREENSHOT_PATH), exist_ok=True)
 
-driver = webdriver.Chrome()
-wait = WebDriverWait(driver, 10)
+driver = webdriver.Chrome(options=options)
+wait = WebDriverWait(driver, 20)
 driver.maximize_window()
 
 try:
-    # === LOGIN ===
-    print("🔐 Login...")
+    print("Login...")
     driver.get(LOGIN_URL)
     wait.until(EC.presence_of_element_located((By.NAME, "email"))).send_keys(EMAIL)
     driver.find_element(By.NAME, "password").send_keys(PASSWORD)
-    driver.find_element(By.XPATH, "//button[contains(text(), 'Masuk')]").click()
-
+    driver.find_element(By.XPATH, '//button[contains(text(), "Masuk")]').click()
     wait.until(EC.presence_of_element_located((By.XPATH, "//h1[text()='Dashboard']")))
-    print("✅ Login berhasil")
+    print("Login berhasil")
 
-    # === AKSES GOFOOD ===
-    print("➡️ Buka halaman transaksi GoFood...")
+    print("Buka halaman GoFood...")
     driver.get(GOFOOD_URL)
-    wait.until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(), 'Transaksi GoFood')]")))
+    wait.until(EC.element_to_be_clickable(
+        (By.XPATH, '//button[.//span[contains(text(), "Tambah Transaksi")]]'))
+    ).click()
 
-    # Klik tombol Tambah Transaksi
-    wait.until(EC.element_to_be_clickable((By.CLASS_NAME, "btn-tambah"))).click()
+    print("Isi form tambah transaksi...")
+    wait.until(EC.visibility_of_element_located((By.ID, "formTambahTransaksi")))
 
-    # Tunggu sampai modal benar-benar terbuka
-    wait.until(EC.visibility_of_element_located((By.NAME, "tanggal")))
+    driver.find_element(By.ID, "tanggal").send_keys("17-07-2025")
+    driver.find_element(By.ID, "waktu").send_keys("13:36")
+    driver.find_element(By.ID, "nama_pelanggan").send_keys("Budi Gacor")
+    driver.find_element(By.ID, "metode_pembayaran").send_keys("Cash")
+
+    print("Tambah item 1...")
+    driver.find_element(By.XPATH, '//button[contains(text(), "+ Tambah Item")]').click()
+    wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#tambahItemsContainer .item-row")) >= 1)
+    item1 = driver.find_elements(By.CSS_SELECTOR, "#tambahItemsContainer .item-row")[-1]
+
+    menu1 = wait.until(lambda d: item1.find_element(By.CSS_SELECTOR, ".menu_name"))
+    menu1.send_keys("Rice Bowl Ayam Sambal Geprek -sangat pedas")
     time.sleep(0.5)
+    menu1.send_keys(Keys.TAB)
+    jumlah1 = item1.find_element(By.CSS_SELECTOR, ".jumlah")
+    jumlah1.clear()
+    jumlah1.send_keys("2")
 
-    # === ISI FORM UTAMA ===
-    print("📝 Isi data transaksi...")
-    driver.find_element(By.NAME, "tanggal").send_keys("2025-07-17")
-    driver.find_element(By.NAME, "waktu").send_keys("11:45")
-    driver.find_element(By.NAME, "nama_pelanggan").send_keys("Pembeli Selenium")
-    driver.find_element(By.NAME, "metode_pembayaran").send_keys("Cash")
+    print("Tambah item 2...")
+    driver.find_element(By.XPATH, '//button[contains(text(), "+ Tambah Item")]').click()
+    wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#tambahItemsContainer .item-row")) == 2)
+    item2 = driver.find_elements(By.CSS_SELECTOR, "#tambahItemsContainer .item-row")[1]
 
-    # === TAMBAH ITEM ===
-    print("➕ Tambah item pesanan...")
-    driver.find_element(By.XPATH, "//button[contains(text(), '+ Tambah Item')]").click()
+    menu2 = wait.until(lambda d: item2.find_element(By.CSS_SELECTOR, ".menu_name"))
+    menu2.send_keys("Ice Tea")
     time.sleep(0.5)
+    menu2.send_keys(Keys.TAB)
+    jumlah2 = item2.find_element(By.CSS_SELECTOR, ".jumlah")
+    jumlah2.clear()
+    jumlah2.send_keys("1")
 
-    # Isi menu menggunakan autocomplete
-    print("🔍 Isi nama menu...")
-    menu_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder='Ketik Nama Menu']")))
-    menu_input.click()
-    menu_input.send_keys("LITE BBQ Chicken - tidak pedas")
-    time.sleep(1)  # beri waktu dropdown muncul
+    print("Centang status berhasil...")
+    checkbox = driver.find_element(By.CSS_SELECTOR, 'input[type="checkbox"][name="status"]')
+    driver.execute_script("arguments[0].click();", checkbox)
 
-    # Gunakan ARROW_DOWN + ENTER untuk memilih dari dropdown
-    menu_input.send_keys(Keys.ARROW_DOWN)
-    menu_input.send_keys(Keys.ENTER)
-    print("✅ Menu berhasil dipilih")
+    print("Submit form...")
+    submit_button = driver.find_element(By.XPATH, '//button[@type="submit" and contains(text(), "Tambah")]')
+    submit_button.click()
 
-    # Isi jumlah
-    jumlah_input = driver.find_element(By.CSS_SELECTOR, "input[name='items[0][jumlah]']")
-    jumlah_input.clear()
-    jumlah_input.send_keys("2")
+    print("Berhasil submit transaksi. Tunggu 3 detik buat amannya...")
+    time.sleep(3)
 
-    # Centang status "Sukses / Berhasil"
-    driver.find_element(By.NAME, "status").click()
-
-    # Submit form
-    print("📤 Kirim form transaksi...")
-    submit_button = driver.find_element(By.XPATH, "//button[contains(text(), 'Tambah')]")
-    driver.execute_script("arguments[0].click();", submit_button)
-
-    # Verifikasi sukses
-    wait.until(EC.presence_of_element_located((By.CLASS_NAME, "alert-success")))
-    print("✅ Transaksi berhasil ditambahkan!")
-    driver.save_screenshot("transaksi_sukses.png")
-
-except Exception as e:
-    print("❌ Error:", str(e))
-    driver.save_screenshot("transaksi_gagal.png")
+except Exception:
+    driver.save_screenshot(SCREENSHOT_PATH)
+    print("Terjadi error! Screenshot disimpan:", SCREENSHOT_PATH)
 
 finally:
     driver.quit()
