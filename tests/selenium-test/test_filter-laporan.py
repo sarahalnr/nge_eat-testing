@@ -4,7 +4,6 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import time
-import sys
 import os
 
 # Matikan log yang tidak perlu
@@ -33,23 +32,33 @@ try:
     print("Login...")
     driver.get(LOGIN_URL)
     wait.until(EC.presence_of_element_located((By.NAME, "email"))).send_keys(EMAIL)
+    time.sleep(2)
+
     driver.find_element(By.NAME, "password").send_keys(PASSWORD)
+    time.sleep(2)
+
     driver.find_element(By.XPATH, "//button[contains(text(), 'Masuk')]").click()
     wait.until(EC.presence_of_element_located((By.XPATH, "//h1[text()='Dashboard']")))
+    time.sleep(2)
     print("Login berhasil")
 
     print("Buka halaman laporan...")
     driver.get(LAPORAN_URL)
     wait.until(EC.presence_of_element_located((By.XPATH, "//h5[contains(text(), 'Laporan Transaksi')]")))
+    time.sleep(2)
 
     print("Set tanggal filter...")
     isi_flatpickr_input("startDateLaporan", "2025-07-01")
+    time.sleep(2)
     isi_flatpickr_input("endDateLaporan", "2025-07-16")
+    time.sleep(2)
+
     driver.find_element(By.ID, "endDateLaporan").send_keys(Keys.ENTER)
+    time.sleep(2)
 
     print("Tunggu reload data laporan...")
     wait.until(EC.presence_of_element_located((By.XPATH, "//table//tr[contains(@class, 'border-t')]")))
-    time.sleep(1)
+    time.sleep(2)
 
     print("Scroll setelah filter tanggal...")
     tabel = driver.find_element(By.XPATH, "//table")
@@ -60,16 +69,20 @@ try:
     platform_select = wait.until(EC.presence_of_element_located((By.NAME, "platform")))
     wait.until(EC.element_to_be_clickable((By.NAME, "platform")))
     driver.execute_script("arguments[0].scrollIntoView(true);", platform_select)
+    time.sleep(2)
 
     options = platform_select.find_elements(By.TAG_NAME, 'option')
     for option in options:
         if option.get_attribute("value") == "gofood":
             option.click()
             break
+    time.sleep(2)
+
     platform_select.send_keys(Keys.ENTER)
+    time.sleep(2)
 
     wait.until(EC.presence_of_element_located((By.XPATH, "//table//tr[contains(@class, 'border-t')]")))
-    time.sleep(1.5)
+    time.sleep(2)
 
     tabel = driver.find_element(By.XPATH, "//table")
     print("Scroll setelah filter platform...")
