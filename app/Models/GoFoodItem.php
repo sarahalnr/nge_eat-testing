@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class GoFoodItem extends Model
 {
+    use HasFactory;
+    
     protected $table = 'transaksi_go_food_items';
 
     protected $fillable = [
