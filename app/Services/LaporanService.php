@@ -196,7 +196,7 @@ class LaporanService
 
         $paginatedResults = $query->paginate($perPage);
 
-        $paginatedResults->totalFiltered = $totalFiltered;
+        $paginatedResults->setTotalFiltered($totalFiltered);
         $paginatedResults->appends(array_filter([
             'platform' => $platform,
             'start_date' => $startDate,
