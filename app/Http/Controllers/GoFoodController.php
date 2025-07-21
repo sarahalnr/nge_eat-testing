@@ -3,27 +3,21 @@
 namespace App\Http\Controllers;
 
 use App\Models\GoFood;
+use App\Models\GoFoodItem;
 use App\Models\Platform;
 use App\Models\Menu;
 use App\Models\MenuPrice;
-use App\Services\GoFoodService; // <-- Import Service
 use Illuminate\Http\Request;
-use Illuminate\Support\Str; // Masih dipakai jika generateIdPesanan tetap di controller
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class GoFoodController extends Controller
 {
-    protected $goFoodService;
-
-    // Inject GoFoodService melalui constructor
-    public function __construct(GoFoodService $goFoodService)
-    {
-        $this->goFoodService = $goFoodService;
-    }
-
     public function index(Request $request)
     {
         $query = GoFood::with(['items.menu'])->latest();
 
+        // ✅ Filter tanggal dari query ?tanggal=YYYY-MM-DD
         if ($request->filled('tanggal')) {
             $query->whereDate('tanggal', $request->tanggal);
         }
@@ -31,10 +25,7 @@ class GoFoodController extends Controller
         $transaksi = $query->paginate(10)->appends($request->except('page'));
         $platforms = Platform::all();
         $menus = Menu::all();
-        
-        // generateIdPesanan() bisa dari service atau tetap di sini jika hanya untuk view
-        // Jika Anda memindahkannya ke service, maka panggil $this->goFoodService->generateIdPesanan();
-        $generatedId = $this->generateIdPesanan(); 
+        $generatedId = $this->generateIdPesanan();
 
         return view('gofood.index', compact('transaksi', 'platforms', 'menus', 'generatedId'));
     }
@@ -55,9 +46,6 @@ class GoFoodController extends Controller
         return response()->json(['price' => $price?->price ?? 0]);
     }
 
-    // Ini bisa dipindahkan ke GoFoodService jika digunakan untuk ID transaksi saat membuat.
-    // Namun, karena sudah ada di service, ini bisa dihapus atau disesuaikan.
-    // Jika ini hanya untuk tampilan form awal, biarkan di sini.
     private function generateIdPesanan(): string
     {
         do {
@@ -69,7 +57,6 @@ class GoFoodController extends Controller
 
     public function store(Request $request)
     {
-        // Validasi tetap di controller
         $request->validate([
             'tanggal' => 'required|date',
             'waktu' => 'required',
@@ -81,29 +68,71 @@ class GoFoodController extends Controller
             'items.*.jumlah' => 'required|integer|min:1',
         ]);
 
+        DB::beginTransaction();
+
         try {
-            // Panggil service untuk membuat transaksi
-            $this->goFoodService->createTransaction($request->all());
+            $total = 0;
+            $jumlahTotalItem = 0;
+
+            $transaksi = GoFood::create([
+                'id_pesanan' => $this->generateIdPesanan(),
+                'tanggal' => $request->tanggal,
+                'waktu' => $request->waktu,
+                'nama_pelanggan' => $request->nama_pelanggan,
+                'metode_pembayaran' => $request->metode_pembayaran,
+                'status' => $request->has('status') ? 1 : 0,
+                'total' => 0,
+                'jumlah' => 0,
+            ]);
+
+            foreach ($request->items as $item) {
+                $menuPrice = MenuPrice::where('menu_id', $item['menu_id'])
+                    ->where('platform_id', $item['platform_id'])
+                    ->first();
+
+                if (!$menuPrice) {
+                    throw new \Exception('Harga tidak ditemukan.');
+                }
+
+                $subtotal = $menuPrice->price * $item['jumlah'];
+                $total += $subtotal;
+                $jumlahTotalItem += $item['jumlah'];
+
+                GoFoodItem::create([
+                    'transaksi_id' => $transaksi->id,
+                    'menu_id' => $item['menu_id'],
+                    'menu_price_id' => $menuPrice->id,
+                    'platform_id' => $item['platform_id'],
+                    'harga' => $menuPrice->price,
+                    'jumlah' => $item['jumlah'],
+                ]);
+            }
+
+            $transaksi->update([
+                'total' => $total,
+                'jumlah' => $jumlahTotalItem,
+            ]);
+
+            DB::commit();
 
             return redirect()->route('gofood.index')->with('success', 'Transaksi berhasil ditambahkan!');
         } catch (\Exception $e) {
+            DB::rollBack();
             return back()->with('error', 'Gagal menyimpan transaksi: ' . $e->getMessage());
         }
     }
 
-    public function edit(GoFood $transaksi) // Menggunakan Route Model Binding
+    public function edit($id)
     {
-        // $transaksi sudah otomatis dicari oleh Laravel berdasarkan ID di route
+        $transaksi = GoFood::with('items')->findOrFail($id);
         $platforms = Platform::all();
         $menus = Menu::all();
 
         return view('gofood.edit', compact('transaksi', 'platforms', 'menus'));
     }
 
-    // Perbarui method update agar menggunakan Route Model Binding
-    public function update(Request $request, GoFood $transaksi) // Menggunakan Route Model Binding
+    public function update(Request $request, $id)
     {
-        // Validasi tetap di controller
         $request->validate([
             'tanggal' => 'required|date',
             'waktu' => 'required',
@@ -115,36 +144,77 @@ class GoFoodController extends Controller
             'items.*.jumlah' => 'required|integer|min:1',
         ]);
 
+        DB::beginTransaction();
+
         try {
-            // Panggil service untuk mengupdate transaksi
-            $this->goFoodService->updateTransaction($transaksi, $request->all());
+            $transaksi = GoFood::findOrFail($id);
+            $transaksi->items()->delete();
+
+            $total = 0;
+            $jumlahTotalItem = 0;
+
+            foreach ($request->items as $item) {
+                $menuPrice = MenuPrice::where('menu_id', $item['menu_id'])
+                    ->where('platform_id', $item['platform_id'])
+                    ->first();
+
+                if (!$menuPrice) {
+                    throw new \Exception('Harga tidak ditemukan.');
+                }
+
+                $subtotal = $menuPrice->price * $item['jumlah'];
+                $total += $subtotal;
+                $jumlahTotalItem += $item['jumlah'];
+
+                GoFoodItem::create([
+                    'transaksi_id' => $transaksi->id,
+                    'menu_id' => $item['menu_id'],
+                    'menu_price_id' => $menuPrice->id,
+                    'platform_id' => $item['platform_id'],
+                    'harga' => $menuPrice->price,
+                    'jumlah' => $item['jumlah'],
+                ]);
+            }
+
+            $transaksi->update([
+                'tanggal' => $request->tanggal,
+                'waktu' => $request->waktu,
+                'nama_pelanggan' => $request->nama_pelanggan,
+                'metode_pembayaran' => $request->metode_pembayaran,
+                'status' => $request->has('status') ? 1 : 0,
+                'total' => $total,
+                'jumlah' => $jumlahTotalItem,
+            ]);
+
+            DB::commit();
 
             return redirect()->route('gofood.index')->with('success', 'Transaksi berhasil diperbarui!');
         } catch (\Exception $e) {
+            DB::rollBack();
             $page = $request->query('page', 1); 
-            // BUGFIX: Mengembalikan error, bukan success
             return redirect()->route('gofood.index', ['page' => $page])
-                ->with('error', 'Gagal memperbarui transaksi: ' . $e->getMessage()); 
+                ->with('success', 'Transaksi berhasil diperbarui');
         }
     }
 
-    // Perbarui method destroy agar menggunakan Route Model Binding
-    public function destroy(GoFood $transaksi) // Menggunakan Route Model Binding
+    public function destroy($id)
     {
-        try {
-            // Panggil service untuk menghapus transaksi
-            $this->goFoodService->deleteTransaction($transaksi);
+        $transaksi = GoFood::find($id);
 
-            return redirect()->route('gofood.index')->with('success', 'Transaksi berhasil dihapus.');
-        } catch (\Exception $e) {
-            // Jika transaksi tidak ditemukan oleh Route Model Binding, Laravel otomatis melempar 404
-            // Ini menangani error dari service
-            return redirect()->route('gofood.index')->with('error', 'Gagal menghapus transaksi: ' . $e->getMessage());
+        if (!$transaksi) {
+            return redirect()->route('gofood.index')->with('error', 'Transaksi tidak ditemukan.');
         }
+
+        $transaksi->items()->delete();
+        $transaksi->delete();
+
+        return redirect()->route('gofood.index')->with('success', 'Transaksi berhasil dihapus.');
     }
 
-    public function editJson(GoFood $transaksi) // Menggunakan Route Model Binding
+    public function editJson($id)
     {
+        $transaksi = GoFood::with(['items.menu', 'items.platform'])->findOrFail($id);
+
         $items = $transaksi->items->map(function ($item) {
             return [
                 'platform_id' => $item->platform_id,
